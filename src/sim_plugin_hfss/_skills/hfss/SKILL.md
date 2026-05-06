@@ -81,8 +81,8 @@ Return JSON-serializable data from the last expression when possible:
 ## First-Version Limits
 
 - Direct `.aedt` and `.aedtz` solving is not validated yet.
-- Real HFSS smoke tests were not run during bootstrap because no licensed
-  AEDT/HFSS installation was available on the development machine.
+- Real HFSS release validation is opt-in and must be recorded separately from
+  ordinary no-AEDT unit tests.
 - Do not claim solver correctness from plugin unit tests alone.
 
 ## Troubleshooting
@@ -90,7 +90,8 @@ Return JSON-serializable data from the last expression when possible:
 - Driver not discovered: reinstall the plugin in the same environment as
   sim-cli and rerun `sim check hfss`.
 - AEDT not detected: set `SIM_HFSS_AEDT_ROOT` to the directory containing
-  `ansysedt.exe` or `ansysedt`.
-- PyAEDT import error: install `pyaedt>=0.26,<1` in the active environment.
+  an AEDT launcher, or rely on default discovery for common install layouts. A
+  permanent global `PATH` change is optional, not required.
+- PyAEDT import error: install `pyaedt>=0.26.3,<1` in the active environment.
 - Script not detected: make sure it constructs HFSS through PyAEDT, for
   example `from ansys.aedt.core.hfss import Hfss` followed by `Hfss(...)`.

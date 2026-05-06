@@ -42,13 +42,42 @@ _HFSS_CALL_TEXT_RE = re.compile(
 )
 
 _AEDT_ENV_VARS = ("SIM_HFSS_AEDT_ROOT", "SIM_AEDT_ROOT")
-_ANSYSEM_ENV_RE = re.compile(r"^ANSYSEM_ROOT(\d{3})$")
+_ANSYSEM_ENV_RE = re.compile(
+    r"^(ANSYSEM_ROOT|ANSYSEMSV_ROOT|ANSYSEM_PY_CLIENT_ROOT)(\d{3})$",
+    re.IGNORECASE,
+)
 _VERSION_CODE_RE = re.compile(r"v?(\d{3})", re.IGNORECASE)
+_AEDT_EXECUTABLE_NAMES = ("ansysedt.exe", "ansysedt", "ansysedtsv.exe", "ansysedtsv")
+_STUDENT_EXE_NAMES = ("ansysedtsv.exe", "ansysedtsv")
+_DEFAULT_INSTALL_PATTERNS = [
+    "C:/Program Files/AnsysEM/v*",
+    "C:/Program Files/AnsysEM/v*/Win64",
+    "C:/Program Files/ANSYS Inc/v*",
+    "C:/Program Files/ANSYS Inc/v*/AnsysEM",
+    "C:/Program Files/ANSYS Inc/v*/AnsysEM/Win64",
+    "C:/Program Files/ANSYS Inc/ANSYS Student/v*",
+    "C:/Program Files/ANSYS Inc/ANSYS Student/v*/AnsysEM",
+    "D:/Program Files/AnsysEM/v*",
+    "D:/Program Files/AnsysEM/v*/Win64",
+    "D:/Program Files/ANSYS Inc/v*",
+    "D:/Program Files/ANSYS Inc/v*/AnsysEM",
+    "D:/Program Files/ANSYS Inc/v*/AnsysEM/Win64",
+    "D:/Program Files/ANSYS Inc/ANSYS Student/v*",
+    "D:/Program Files/ANSYS Inc/ANSYS Student/v*/AnsysEM",
+    "/opt/ansys_inc/v*",
+    "/opt/ansys_inc/v*/AnsysEM",
+    "/opt/ansys_inc/v*/AnsysEM/Linux64",
+    "/usr/ansys_inc/v*",
+    "/usr/ansys_inc/v*/AnsysEM",
+    "/usr/ansys_inc/v*/AnsysEM/Linux64",
+    "/opt/AnsysEM/v*",
+    "/opt/AnsysEM/v*/Linux64",
+]
 
 _NOT_INSTALLED_HINT = (
     "No Ansys Electronics Desktop installation detected on this host. "
-    "Set SIM_HFSS_AEDT_ROOT or SIM_AEDT_ROOT to the AEDT root, or expose "
-    "ansysedt on PATH."
+    "Set SIM_HFSS_AEDT_ROOT or SIM_AEDT_ROOT to the AEDT root, or expose an "
+    "AEDT launcher such as ansysedt or ansysedtsv on PATH."
 )
 
 
@@ -97,6 +126,33 @@ def _try_import_pyaedt() -> _PyaedtApi | None:
         )
     except Exception:
         return None
+
+
+def _patch_pyaedt_student_startup_check() -> None:
+    """Work around PyAEDT 0.26.x parsing ``2025.2SV`` as a float on Windows."""
+    try:
+        import ansys.aedt.core.desktop as desktop_mod  # type: ignore
+
+        desktop_cls = desktop_mod.Desktop
+        original = desktop_cls.check_starting_mode
+        if getattr(original, "_sim_hfss_student_suffix_patch", False):
+            return
+
+        def patched_check_starting_mode(self):
+            version_id = getattr(self, "aedt_version_id", "")
+            if isinstance(version_id, str) and version_id.upper().endswith("SV"):
+                trimmed = version_id[:-2]
+                try:
+                    self.aedt_version_id = trimmed
+                    return original(self)
+                finally:
+                    self.aedt_version_id = version_id
+            return original(self)
+
+        patched_check_starting_mode._sim_hfss_student_suffix_patch = True
+        desktop_cls.check_starting_mode = patched_check_starting_mode
+    except Exception:
+        return
 
 
 def _read_text(path: Path) -> str | None:
@@ -152,6 +208,15 @@ def _version_from_code(code: str | None) -> str | None:
     return f"20{code[:2]}.{code[2]}"
 
 
+def _code_from_version(version: str | None) -> str | None:
+    if not version:
+        return None
+    m = re.match(r"^20(\d{2})\.(\d+)", version)
+    if not m:
+        return None
+    return f"{m.group(1)}{m.group(2)}"
+
+
 def _version_from_path(path: Path) -> str:
     for part in [path.name, *[p.name for p in path.parents[:3]]]:
         m = _VERSION_CODE_RE.search(part)
@@ -166,36 +231,52 @@ def _version_from_path(path: Path) -> str:
 
 
 def _find_aedt_executable(root: Path) -> Path | None:
-    if root.is_file() and root.name.lower() in {"ansysedt", "ansysedt.exe"}:
+    if root.is_file() and root.name.lower() in _AEDT_EXECUTABLE_NAMES:
         return root
-    names = ("ansysedt.exe", "ansysedt")
     dirs = (
         root,
         root / "Win64",
         root / "Linux64",
+        root / "AnsysEM",
         root / "AnsysEM" / "Win64",
         root / "AnsysEM" / "Linux64",
     )
     for directory in dirs:
-        for name in names:
+        for name in _AEDT_EXECUTABLE_NAMES:
             candidate = directory / name
             if candidate.is_file():
                 return candidate
     return None
 
 
-def _install_from_root(root: Path, source: str, version: str | None = None) -> SolverInstall | None:
+def _looks_like_student_install(root: Path, exe: Path) -> bool:
+    values = [exe.name, str(root), str(exe)]
+    return any("student" in value.lower() for value in values) or exe.name.lower() in _STUDENT_EXE_NAMES
+
+
+def _install_from_root(
+    root: Path,
+    source: str,
+    version: str | None = None,
+    student_version: bool | None = None,
+) -> SolverInstall | None:
     exe = _find_aedt_executable(root)
     if exe is None:
         return None
     install_root = exe.parent
     detected_version = version or _version_from_path(install_root)
+    detected_student = _looks_like_student_install(root, exe)
+    is_student = bool(student_version or detected_student)
     return SolverInstall(
         name="hfss",
         version=detected_version,
         path=str(install_root),
         source=source,
-        extra={"executable": str(exe), "aedt_root": str(root)},
+        extra={
+            "executable": str(exe),
+            "aedt_root": str(root),
+            "student_version": is_student,
+        },
     )
 
 
@@ -215,7 +296,8 @@ def _candidates_from_env() -> list[SolverInstall]:
         install = _install_from_root(
             Path(value),
             f"env:{key}",
-            version=_version_from_code(match.group(1)),
+            version=_version_from_code(match.group(2)),
+            student_version=match.group(1).upper() == "ANSYSEMSV_ROOT",
         )
         if install:
             installs.append(install)
@@ -224,35 +306,31 @@ def _candidates_from_env() -> list[SolverInstall]:
 
 def _candidates_from_path() -> list[SolverInstall]:
     installs: list[SolverInstall] = []
-    for executable in ("ansysedt", "ansysedt.exe"):
+    for executable in _AEDT_EXECUTABLE_NAMES:
         found = shutil.which(executable)
         if not found:
             continue
         path = Path(found).resolve()
+        student_version = _looks_like_student_install(path.parent, path)
         installs.append(
             SolverInstall(
                 name="hfss",
                 version=_version_from_path(path),
                 path=str(path.parent),
                 source=f"which:{executable}",
-                extra={"executable": str(path), "aedt_root": str(path.parent)},
+                extra={
+                    "executable": str(path),
+                    "aedt_root": str(path.parent),
+                    "student_version": student_version,
+                },
             )
         )
     return installs
 
 
 def _candidates_from_defaults() -> list[SolverInstall]:
-    patterns = [
-        "C:/Program Files/AnsysEM/v*/Win64",
-        "C:/Program Files/ANSYS Inc/v*/AnsysEM/Win64",
-        "D:/Program Files/AnsysEM/v*/Win64",
-        "D:/Program Files/ANSYS Inc/v*/AnsysEM/Win64",
-        "/opt/ansys_inc/v*/AnsysEM/Linux64",
-        "/usr/ansys_inc/v*/AnsysEM/Linux64",
-        "/opt/AnsysEM/v*/Linux64",
-    ]
     installs: list[SolverInstall] = []
-    for pattern in patterns:
+    for pattern in _DEFAULT_INSTALL_PATTERNS:
         for raw in glob.glob(pattern):
             install = _install_from_root(Path(raw), f"default-path:{raw}")
             if install:
@@ -282,6 +360,26 @@ def _scan_aedt_installs() -> list[SolverInstall]:
                 key = str(exe)
             found.setdefault(key, install)
     return sorted(found.values(), key=_install_sort_key, reverse=True)
+
+
+def _pyaedt_env_key(install: SolverInstall) -> str | None:
+    code = _code_from_version(install.version)
+    if not code:
+        return None
+    if install.extra.get("student_version"):
+        return f"ANSYSEMSV_ROOT{code}"
+    return f"ANSYSEM_ROOT{code}"
+
+
+def _prepare_pyaedt_environment(install: SolverInstall | None) -> dict[str, str]:
+    """Expose a detected install through the process env shape PyAEDT expects."""
+    if install is None:
+        return {}
+    key = _pyaedt_env_key(install)
+    if key is None:
+        return {}
+    os.environ[key] = install.path
+    return {key: install.path}
 
 
 def _install_sort_key(install: SolverInstall) -> tuple[int, int, str]:
@@ -388,6 +486,7 @@ class HfssDriver:
             )
 
         top = installs[0]
+        _prepare_pyaedt_environment(top)
         api = _try_import_pyaedt()
         if api is None:
             return ConnectionInfo(
@@ -396,7 +495,7 @@ class HfssDriver:
                 status="error",
                 message=(
                     f"AEDT {top.version} was found, but PyAEDT is not importable. "
-                    "Install with: uv pip install 'pyaedt>=0.26,<1'."
+                    "Install with: uv pip install 'pyaedt>=0.26.3,<1'."
                 ),
                 solver_version=top.version,
             )
@@ -443,7 +542,7 @@ class HfssDriver:
         port: int = 0,
         new_desktop: bool = True,
         close_on_exit: bool = False,
-        student_version: bool = False,
+        student_version: bool | None = None,
         **kwargs: object,
     ) -> dict:
         installs = self.detect_installed()
@@ -454,12 +553,14 @@ class HfssDriver:
                 "message": _short_text(_NOT_INSTALLED_HINT),
             }
 
+        selected_install = installs[0] if installs else None
+        prepared_env = _prepare_pyaedt_environment(selected_install)
         api = _try_import_pyaedt()
         if api is None:
             return {
                 "ok": False,
                 "error_code": "RUN_FAILED",
-                "message": "PyAEDT is not importable; install pyaedt>=0.26,<1.",
+                "message": "PyAEDT is not importable; install pyaedt>=0.26.3,<1.",
             }
 
         normalized_ui = (ui_mode or "no_gui").replace("-", "_").lower()
@@ -475,6 +576,11 @@ class HfssDriver:
                 "error_code": "RUN_FAILED",
                 "message": f"unsupported HFSS ui_mode: {ui_mode}",
             }
+
+        if student_version is None:
+            student_version = bool(selected_install and selected_install.extra.get("student_version"))
+        if student_version:
+            _patch_pyaedt_student_startup_check()
 
         launch_kwargs = {
             "project": project,
@@ -513,6 +619,7 @@ class HfssDriver:
             **launch_kwargs,
             "ui_mode": normalized_ui,
             "mode": mode,
+            "prepared_env": prepared_env,
             **kwargs,
         }
         return {
@@ -521,7 +628,9 @@ class HfssDriver:
             "solver": self.name,
             "ui_mode": normalized_ui,
             "non_graphical": non_graphical,
+            "student_version": student_version,
             "pyaedt_version": api.version,
+            "launch_options": dict(self._launch_options),
         }
 
     def run(self, code: str, label: str = "") -> dict:

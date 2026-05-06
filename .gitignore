@@ -6,6 +6,9 @@
 dist/
 build/
 *.egg-info/
+batch.log
 .pytest_basetemp/
+.sim/
+.tmp/
 __pycache__/
 *.py[cod]

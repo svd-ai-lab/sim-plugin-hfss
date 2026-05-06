@@ -98,6 +98,84 @@ class TestInstallDiscovery:
         assert installs[0].version == "2025.2"
         assert installs[0].source == "env:ANSYSEM_ROOT252"
 
+    def test_ansysemsv_env_marks_student(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        exe = tmp_path / "AnsysEM" / "ansysedtsv.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_text("", encoding="utf-8")
+        monkeypatch.setenv("ANSYSEMSV_ROOT252", str(exe.parent))
+        monkeypatch.setattr(drv, "_INSTALL_FINDERS", [drv._candidates_from_env])
+
+        installs = HfssDriver().detect_installed()
+
+        assert installs[0].version == "2025.2"
+        assert installs[0].source == "env:ANSYSEMSV_ROOT252"
+        assert installs[0].extra["student_version"] is True
+
+    def test_ansysem_env_names_are_case_insensitive(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        exe = tmp_path / "AnsysEM" / "ansysedt.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_text("", encoding="utf-8")
+        monkeypatch.setenv("ansysem_root252", str(exe.parent))
+        monkeypatch.setattr(drv, "_INSTALL_FINDERS", [drv._candidates_from_env])
+
+        installs = HfssDriver().detect_installed()
+
+        assert installs[0].version == "2025.2"
+        assert installs[0].extra["student_version"] is False
+
+    def test_student_root_discovery(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        exe = tmp_path / "ANSYS Inc" / "ANSYS Student" / "v252" / "AnsysEM" / "ansysedtsv.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_text("", encoding="utf-8")
+        monkeypatch.setattr(
+            drv,
+            "_DEFAULT_INSTALL_PATTERNS",
+            [str(tmp_path / "ANSYS Inc" / "ANSYS Student" / "v*")],
+        )
+        monkeypatch.setattr(drv, "_INSTALL_FINDERS", [drv._candidates_from_defaults])
+
+        installs = HfssDriver().detect_installed()
+
+        assert len(installs) == 1
+        assert installs[0].version == "2025.2"
+        assert installs[0].extra["executable"] == str(exe)
+        assert installs[0].extra["student_version"] is True
+
+    def test_path_discovery_checks_student_launcher(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        exe = tmp_path / "AnsysEM" / "ansysedtsv.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_text("", encoding="utf-8")
+
+        def fake_which(name: str) -> str | None:
+            return str(exe) if name == "ansysedtsv.exe" else None
+
+        monkeypatch.setattr(drv.shutil, "which", fake_which)
+        monkeypatch.setattr(drv, "_INSTALL_FINDERS", [drv._candidates_from_path])
+
+        installs = HfssDriver().detect_installed()
+
+        assert len(installs) == 1
+        assert installs[0].source == "which:ansysedtsv.exe"
+        assert installs[0].extra["student_version"] is True
+
+    def test_prepare_pyaedt_environment_uses_student_env_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("ANSYSEMSV_ROOT252", raising=False)
+
+        prepared = drv._prepare_pyaedt_environment(_student_install())
+
+        assert prepared == {
+            "ANSYSEMSV_ROOT252": "C:/Program Files/ANSYS Inc/ANSYS Student/v252/AnsysEM"
+        }
+        assert drv.os.environ["ANSYSEMSV_ROOT252"].endswith("/AnsysEM")
+
 
 class TestConnect:
     def test_connect_not_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,6 +189,7 @@ class TestConnect:
 
     def test_connect_pyaedt_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         driver = HfssDriver()
+        monkeypatch.delenv("ANSYSEM_ROOT261", raising=False)
         monkeypatch.setattr(driver, "detect_installed", lambda: [_install()])
         monkeypatch.setattr(drv, "_try_import_pyaedt", lambda: None)
 
@@ -121,6 +200,7 @@ class TestConnect:
 
     def test_connect_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
         driver = HfssDriver()
+        monkeypatch.delenv("ANSYSEM_ROOT261", raising=False)
         monkeypatch.setattr(driver, "detect_installed", lambda: [_install()])
         monkeypatch.setattr(
             drv,
@@ -182,6 +262,7 @@ class TestRunFile:
 class TestSession:
     def test_launch_run_query_disconnect(self, monkeypatch: pytest.MonkeyPatch) -> None:
         driver = HfssDriver()
+        monkeypatch.delenv("ANSYSEM_ROOT261", raising=False)
         monkeypatch.setattr(driver, "detect_installed", lambda: [_install()])
         monkeypatch.setattr(
             drv,
@@ -193,6 +274,7 @@ class TestSession:
 
         assert launched["ok"] is True
         assert FakeHfss.last_kwargs["non_graphical"] is True
+        assert FakeHfss.last_kwargs["student_version"] is False
         assert FakeHfss.last_kwargs["project"] == "demo.aedt"
 
         run = driver.run('hfss.marker = "changed"\n{"marker": hfss.marker}', label="mutate")
@@ -226,6 +308,44 @@ class TestSession:
         assert result["ok"] is False
         assert result["error_code"] == "SOLVER_NOT_INSTALLED"
 
+    def test_launch_infers_student_version_from_install_metadata(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        driver = HfssDriver()
+        monkeypatch.delenv("ANSYSEMSV_ROOT252", raising=False)
+        monkeypatch.setattr(driver, "detect_installed", lambda: [_student_install()])
+        monkeypatch.setattr(
+            drv,
+            "_try_import_pyaedt",
+            lambda: drv._PyaedtApi(Desktop=None, Hfss=FakeHfss, version="0.26.3"),
+        )
+
+        launched = driver.launch(ui_mode="gui")
+
+        assert launched["ok"] is True
+        assert launched["student_version"] is True
+        assert FakeHfss.last_kwargs["student_version"] is True
+        assert launched["launch_options"]["prepared_env"] == {
+            "ANSYSEMSV_ROOT252": "C:/Program Files/ANSYS Inc/ANSYS Student/v252/AnsysEM"
+        }
+
+    def test_launch_respects_explicit_student_version_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        driver = HfssDriver()
+        monkeypatch.delenv("ANSYSEMSV_ROOT252", raising=False)
+        monkeypatch.setattr(driver, "detect_installed", lambda: [_student_install()])
+        monkeypatch.setattr(
+            drv,
+            "_try_import_pyaedt",
+            lambda: drv._PyaedtApi(Desktop=None, Hfss=FakeHfss, version="0.26.3"),
+        )
+
+        launched = driver.launch(student_version=False)
+
+        assert launched["ok"] is True
+        assert FakeHfss.last_kwargs["student_version"] is False
+
     def test_run_without_session(self) -> None:
         result = HfssDriver().run("1 + 1")
         assert result["ok"] is False
@@ -238,7 +358,20 @@ def _install() -> SolverInstall:
         version="2026.1",
         path="/opt/AnsysEM/v261/Linux64",
         source="test",
-        extra={"executable": "/opt/AnsysEM/v261/Linux64/ansysedt"},
+        extra={"executable": "/opt/AnsysEM/v261/Linux64/ansysedt", "student_version": False},
+    )
+
+
+def _student_install() -> SolverInstall:
+    return SolverInstall(
+        name="hfss",
+        version="2025.2",
+        path="C:/Program Files/ANSYS Inc/ANSYS Student/v252/AnsysEM",
+        source="test",
+        extra={
+            "executable": "C:/Program Files/ANSYS Inc/ANSYS Student/v252/AnsysEM/ansysedtsv.exe",
+            "student_version": True,
+        },
     )
 
 

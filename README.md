@@ -9,15 +9,14 @@ PyAEDT as the Python control layer for Ansys Electronics Desktop (AEDT), keeps
 the driver import-safe on machines without AEDT, and bundles an HFSS agent
 skill so an agent has solver-specific workflow guidance after installation.
 
-The HFSS/AEDT application and license are not bundled. Bring your own AEDT
-installation and license. See [LICENSE-NOTICE.md](LICENSE-NOTICE.md).
+The HFSS/AEDT application is not bundled. See
+[LICENSE-NOTICE.md](LICENSE-NOTICE.md).
 
 ## Current maturity
 
-This is a bootstrap release candidate. It has unit coverage, protocol
-conformance coverage, simulated PyAEDT session coverage, and packaging checks.
-It has not yet been run against a real HFSS installation because the initial
-development machine does not have licensed AEDT/HFSS available.
+This is an initial alpha release. It has unit coverage, protocol conformance
+coverage, simulated PyAEDT session coverage, packaging checks, and opt-in real
+HFSS smoke coverage for hosts with AEDT available.
 
 Use it as an integration starting point, not as proof that a production HFSS
 workflow has been validated end to end.
@@ -32,7 +31,7 @@ Out of scope for this first version:
 - HFSS 3D Layout
 - Maxwell, Icepak, Q3D, Circuit, or generic AEDT workflows
 - Direct `.aedt` or `.aedtz` batch solve without a PyAEDT script
-- PyPI publishing or plugin-index catalogue entry
+- Plugin-index catalogue entry before the package is published and smoke-tested
 
 ## What an agent can do with HFSS
 
@@ -46,7 +45,13 @@ Out of scope for this first version:
 
 ## Install
 
-For source testing:
+Install from PyPI:
+
+```bash
+uv pip install "sim-plugin-hfss==0.1.0"
+```
+
+For source testing against the current main branch:
 
 ```bash
 uv pip install "git+https://github.com/svd-ai-lab/sim-plugin-hfss.git@main"
@@ -61,7 +66,7 @@ sim run --solver hfss path/to/script.py
 
 If `sim check hfss` reports that AEDT itself is unavailable, first confirm the
 Python package installed correctly, then fix the local AEDT installation,
-environment variables, or license prerequisites.
+environment variables, or runtime prerequisites.
 
 ## AEDT discovery
 
@@ -70,15 +75,19 @@ The driver looks for AEDT using:
 - `SIM_HFSS_AEDT_ROOT`
 - `SIM_AEDT_ROOT`
 - `ANSYSEM_ROOT*`
-- `ansysedt` or `ansysedt.exe` on `PATH`
-- conservative default Windows and Linux install paths
+- AEDT launchers such as `ansysedt`, `ansysedt.exe`, or `ansysedtsv.exe` on
+  `PATH`
+- conservative default Windows and Linux install roots
 
 If AEDT is installed in a nonstandard location, set an explicit root:
 
 ```powershell
-$env:SIM_HFSS_AEDT_ROOT = 'C:\Program Files\AnsysEM\v261\Win64'
+$env:SIM_HFSS_AEDT_ROOT = 'C:\path\to\AnsysEM'
 sim check hfss
 ```
+
+You do not need to add AEDT to the global system `PATH` when default discovery
+or one of the explicit environment variables works.
 
 ## Common agent workflow
 
@@ -110,7 +119,18 @@ uv build
 ```
 
 The test suite is designed to pass on machines without AEDT/HFSS. Real solver
-smoke testing must be added once a licensed AEDT installation is available.
+smoke testing is opt-in:
+
+```bash
+SIM_HFSS_RUN_INTEGRATION=1 uv run pytest tests/test_hfss_real_smoke.py -q
+```
+
+On PowerShell:
+
+```powershell
+$env:SIM_HFSS_RUN_INTEGRATION = '1'
+uv run pytest tests/test_hfss_real_smoke.py -q
+```
 
 ## License
 
