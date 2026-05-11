@@ -41,32 +41,40 @@ Out of scope for this first version:
   AEDT is available.
 - Execute bounded Python snippets against the active `hfss` object.
 - Inspect session, project, and design summaries before continuing.
-- Run complete PyAEDT Python scripts through `sim run --solver hfss`.
+- Run complete PyAEDT Python scripts through `uv run sim run --solver hfss`.
 
 ## Install
 
-Install from PyPI:
+For agent projects, install sim-cli-core and the HFSS plugin in the project
+environment:
 
-```bash
-uv pip install "sim-plugin-hfss==0.1.0"
+```powershell
+uv init  # only if this is not already a uv project
+uv add sim-cli-core sim-plugin-hfss
+uv run sim plugin sync-skills --target .agents/skills --copy
+uv run sim check hfss
+uv run sim plugin doctor hfss --deep
+```
+
+For Claude Code, sync the bundled skill to `.claude/skills` instead:
+
+```powershell
+uv run sim plugin sync-skills --target .claude/skills --copy
 ```
 
 For source testing against the current main branch:
 
-```bash
-uv pip install "git+https://github.com/svd-ai-lab/sim-plugin-hfss.git@main"
+```powershell
+uv add sim-cli-core "git+https://github.com/svd-ai-lab/sim-plugin-hfss.git@main"
 ```
 
-After installation, sim-cli should auto-discover the driver and bundled skill:
+`uv run sim ...` runs sim from this project environment, so it sees this
+project's plugins. Without uv, create and activate a venv, then install
+`sim-cli-core` plus this plugin with `python -m pip`.
 
-```bash
-sim check hfss
-sim run --solver hfss path/to/script.py
-```
-
-If `sim check hfss` reports that AEDT itself is unavailable, first confirm the
-Python package installed correctly, then fix the local AEDT installation,
-environment variables, or runtime prerequisites.
+If `uv run sim check hfss` reports that AEDT itself is unavailable, first
+confirm the Python package installed correctly, then fix the local AEDT
+installation, environment variables, or runtime prerequisites.
 
 ## AEDT discovery
 
@@ -83,7 +91,7 @@ If AEDT is installed in a nonstandard location, set an explicit root:
 
 ```powershell
 $env:SIM_HFSS_AEDT_ROOT = 'C:\path\to\AnsysEM'
-sim check hfss
+uv run sim check hfss
 ```
 
 You do not need to add AEDT to the global system `PATH` when default discovery
@@ -91,16 +99,16 @@ or one of the explicit environment variables works.
 
 ## Common agent workflow
 
-1. Run `sim check hfss`.
+1. Run `uv run sim check hfss`.
 2. Choose GUI mode only when visual review is required; otherwise prefer
    non-graphical mode.
 3. Connect and inspect the active project/design before mutating anything:
 
    ```bash
-   sim connect --solver hfss --ui-mode no_gui
-   sim inspect session.summary
-   sim inspect hfss.project.identity
-   sim inspect hfss.design.summary
+   uv run sim connect --solver hfss --ui-mode no_gui
+   uv run sim inspect session.summary
+   uv run sim inspect hfss.project.identity
+   uv run sim inspect hfss.design.summary
    ```
 
 4. Run one bounded PyAEDT snippet at a time.
