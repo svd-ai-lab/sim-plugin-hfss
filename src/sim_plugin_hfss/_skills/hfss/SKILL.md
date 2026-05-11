@@ -12,16 +12,16 @@ This initial plugin targets HFSS 3D through PyAEDT. It does not yet cover HFSS
 
 ## Required Protocol
 
-1. Run `sim check hfss` before launching or editing anything.
-2. If `sim check hfss` reports `not_installed`, stop and ask the user for an
+1. Run `uv run sim check hfss` before launching or editing anything.
+2. If `uv run sim check hfss` reports `not_installed`, stop and ask the user for an
    AEDT installation or `SIM_HFSS_AEDT_ROOT` path. Do not invent install paths.
 3. Prefer `--ui-mode no_gui` unless the user explicitly needs visual review.
 4. Before setup, solve, export, or result interpretation, inspect:
 
 ```bash
-sim inspect session.summary
-sim inspect hfss.project.identity
-sim inspect hfss.design.summary
+uv run sim inspect session.summary
+uv run sim inspect hfss.project.identity
+uv run sim inspect hfss.design.summary
 ```
 
 5. Run one bounded PyAEDT snippet at a time.
@@ -36,16 +36,16 @@ sim inspect hfss.design.summary
 ### Connect to HFSS
 
 ```bash
-sim connect --solver hfss --ui-mode no_gui
-sim inspect session.summary
-sim inspect hfss.project.identity
-sim inspect hfss.design.summary
+uv run sim connect --solver hfss --ui-mode no_gui
+uv run sim inspect session.summary
+uv run sim inspect hfss.project.identity
+uv run sim inspect hfss.design.summary
 ```
 
 Use GUI mode only when the user needs to watch AEDT:
 
 ```bash
-sim connect --solver hfss --ui-mode gui
+uv run sim connect --solver hfss --ui-mode gui
 ```
 
 ### Run a PyAEDT script
@@ -53,8 +53,8 @@ sim connect --solver hfss --ui-mode gui
 Use this for a complete script that constructs or opens an HFSS project:
 
 ```bash
-sim lint --solver hfss path/to/script.py
-sim run --solver hfss path/to/script.py
+uv run sim lint --solver hfss path/to/script.py
+uv run sim run --solver hfss path/to/script.py
 ```
 
 The script runs in the current Python environment. PyAEDT and AEDT must be
@@ -62,7 +62,7 @@ available there.
 
 ### Execute a bounded snippet
 
-After `sim connect`, snippets can use the live `hfss` object:
+After `uv run sim connect`, snippets can use the live `hfss` object:
 
 ```python
 hfss.project_name
@@ -102,7 +102,7 @@ Return JSON-serializable data from the last expression when possible:
 ## Troubleshooting
 
 - Driver not discovered: reinstall the plugin in the same environment as
-  sim-cli and rerun `sim check hfss`.
+  sim-cli and rerun `uv run sim check hfss`.
 - AEDT not detected: set `SIM_HFSS_AEDT_ROOT` to the directory containing
   an AEDT launcher, or rely on default discovery for common install layouts. A
   permanent global `PATH` change is optional, not required.
