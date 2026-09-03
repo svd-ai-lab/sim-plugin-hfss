@@ -63,6 +63,123 @@ sim inspect hfss.setups.summary
 7. Keep failed evidence. If a solve/export fails, capture AEDT messages,
    stdout/stderr, generated files, and the exact step that failed.
 
+## Stateful Parameter Optimization
+
+Treat a TDR or S-parameter optimization as a recoverable state machine, not as
+a chain of scripts in one chat. Before the first mutation, create a durable run
+record beside the working project. Record the exact AEDT runtime and version,
+source and working-copy identities, owned session PID, project/design/setup and
+sweep/report context, objectives and constraints with units, parameter names and
+bounds, the active point, and the paths and timestamps of result artifacts.
+Update this record atomically after every state change so a restarted agent can
+resume without reconstructing truth from conversation history.
+
+Use these iteration-accounting rules consistently:
+
+- A requested baseline that has not run is not yet an optimization iteration.
+- A solve that is alive, or solved data that still needs a trustworthy numeric
+  export, is pending. Do not count it or use it to choose another point.
+- A point with an explicit solve, convergence, export, schema, or numeric
+  validation failure is failed and must not count. Persist its parameters,
+  messages, and artifact evidence; do not let it steer the optimizer.
+- Count and commit a point only after the expected numeric rows were exported,
+  units and columns were checked, the objective was computed, and every hard
+  constraint was evaluated.
+- A change to the allowed search space is metadata, not a result. If a solve is
+  active, keep its parameters frozen, record the new scope for later, and do
+  not restart or mutate the active point.
+
+Only a committed baseline and committed candidate measurements may establish
+an optimization direction. Compare the objective and constraints to the prior
+committed point, keep the proposed value inside its recorded bounds, and change
+one parameter per point unless the user explicitly selected a designed
+multi-parameter study. Estimates and qualitative RF intuition may be presented
+as estimates, but must not be promoted to validated HFSS evidence.
+
+### Identity, Version, and Project Preservation
+
+Never route automation from the active desktop window or a process name alone.
+Discover sessions, then bind the intended one using ownership/PID plus the
+expected project, design, and setup. Keep the full identity chain in the run
+record and re-check it after reconnecting. Do not terminate, close, or modify a
+different user-owned AEDT session.
+
+Treat an AEDT executable path and an AEDT project path as distinct inputs. When
+opening an older project in a newer runtime, preserve the source project,
+create a separate migrated copy, launch the requested runtime, open only the
+copy, inventory all designs, and verify the selected design/setup/report
+context before any solve. A successful open proves neither model correctness
+nor a numeric baseline.
+
+If the user corrects an earlier availability assumption by confirming a valid
+license and an already-open AEDT session, use that as environment evidence.
+Discover and disambiguate the existing sessions; do not repeat installation or
+license setup and do not attach to whichever window happens to be active.
+
+For projects with multiple or similarly named designs, inventory the designs
+before selecting a target. Verify the requested topology, layer context,
+ports, setup, sweep, and report solution context. A matching name or active
+design alone is insufficient.
+
+### Baseline and Parameterization Gate
+
+For a supplied project, first preserve a working copy, verify its identity and
+current topology, define numeric objectives and constraints, map actual geometry
+objects to bounded parameters, and save the parameterization plan. Establish a
+numeric baseline in that working copy before proposing or starting candidate
+points. Do not overwrite the original, silently guess object mappings, or jump
+from a planning request into an optimization solve.
+
+Accept a baseline only when the recorded runtime, working-copy project, design,
+setup, and report solution context match, and the exported file has the expected
+schema and numeric rows from which the baseline metric can be reproduced.
+Historical plots or reports copied from another version are context, not the
+migrated numeric baseline.
+
+If there is no base project and the requested result must support engineering
+review, ask for the missing stackup, conductor and via geometry, materials,
+ports/excitations, boundary conditions, target topology, frequency/time setup,
+and acceptance criteria. A prose request or scale-free image does not justify
+inventing a review-ready model or claiming a result.
+
+### Recovery Without Duplicate Solves
+
+A control/API timeout is not a solver failure. On timeout, use the recorded
+session identity to inspect the owned AEDT process, solver progress, solution
+artifacts, and their modification times. If the process is alive and progress
+or artifacts continue changing, leave the point pending, wait for the existing
+solve, reconnect to that same owned session if necessary, then query/export and
+validate the result. Never launch a duplicate solve merely because a tool call
+returned or timed out.
+
+Likewise, a report/export failure is not proof that the solve failed. If solved
+data and fresh solution artifacts exist, inspect the report's setup/sweep/domain
+binding, query the solution data directly, rebuild only the report binding when
+needed, export again, and validate numeric rows before considering a rerun.
+
+When the user completed a solve manually while the agent was waiting, adopt the
+existing solved data as an unvalidated pending result. Verify the target
+project/design/setup and solution/report context, inventory fresh artifacts,
+query and export the data, validate it, and append it to the ledger. Do not
+discard or duplicate a solve simply because the agent did not start it.
+
+After an agent or application restart, load the durable run record before
+choosing any action. Reconcile each recorded point with owned-process liveness,
+solver progress, artifact presence/timestamps, report binding, and numeric
+exports. Resume monitoring an alive progressing solve, recover an exportable
+result, or persist a failed point; never start the next point until the current
+state is reconciled.
+
+### Claim Discipline
+
+Keep conclusions no stronger than the evidence. Session readiness requires the
+complete ownership/PID/project/design/setup chain. A running claim requires
+owned-process liveness and progress evidence. A solved-data claim does not imply
+a valid report or numeric result. A valid-iteration claim requires a checked
+numeric export, objective, constraints, and persisted ledger entry. Report the
+first missing gate explicitly instead of treating a script exit code, visible
+plot, project-open event, or search-space update as engineering completion.
+
 ## Common Workflows
 
 ### Offline AEDT Project Probe
