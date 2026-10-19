@@ -1,3 +1,8 @@
+> [!IMPORTANT]
+> **This repository has moved.** `sim-plugin-hfss` is now developed in [svd-ai-lab/sim-cli](https://github.com/svd-ai-lab/sim-cli/tree/main/plugins/hfss) under `plugins/hfss`. This repository is archived and read-only; please open issues and pull requests in sim-cli.
+>
+> Install: `uv add sim-cli-core sim-plugin-hfss`
+
 # sim-plugin-hfss
 
 Use Codex, Claude Code, or another AI agent to work with
